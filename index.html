@@ -3,111 +3,419 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>British Isles reader prototype</title>
+<title>British Isles explorer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-:root { --bg: #fff; --ink: #1d2733; --muted: #5b6876; --line: #d9dee4; --accent: #1f6feb; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --bg: #14181d; --ink: #e3e8ee; --muted: #98a4b1; --line: #2c343d; --accent: #4c8dff; }
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #677085; --line: #dfe3ea;
+  --accent: #1f6feb; --accent-ink: #ffffff; --err: #c0262d; --chip: #eef2f8;
 }
-:root[data-theme="dark"] { --bg: #14181d; --ink: #e3e8ee; --muted: #98a4b1; --line: #2c343d; --accent: #4c8dff; }
-body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink);
-       font: 14px/1.45 system-ui, sans-serif; max-width: 1100px; }
-h1 { font-size: 18px; margin: 0 0 4px; }
-.muted { color: var(--muted); }
-.row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 10px 0; }
-input[type=number] { width: 6em; }
-button, select, input { font: inherit; }
-button { border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; padding: 4px 12px; cursor: pointer; }
-button:disabled { opacity: .5; cursor: default; }
-table { border-collapse: collapse; margin: 8px 0; }
-td, th { border-bottom: 1px solid var(--line); padding: 3px 10px; text-align: right; }
-td:first-child, th:first-child { text-align: left; }
-#plot { height: 420px; }
-.err { color: #d1242f; white-space: pre-wrap; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --panel: #1a1e26; --ink: #e5e8ee; --muted: #9aa3b5; --line: #2c323d;
+    --accent: #4c8dff; --accent-ink: #0b0d11; --err: #ff6b70; --chip: #232a35;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 16px; margin: 0; }
+header .muted { margin-left: 8px; }
+main { display: grid; grid-template-columns: 340px 1fr; height: calc(100% - 45px); }
+aside { overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); padding: 4px 16px 24px; }
+section { border-bottom: 1px solid var(--line); padding: 12px 0; }
+section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+label.row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+select, input[type=number] { background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 6px; font: inherit; }
+select { width: 100%; }
+input[type=number] { width: 90px; }
+input[type=text] { flex: 1; min-width: 0; background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 6px; font: 12px ui-monospace, monospace; }
+.row2 { display: flex; gap: 6px; }
+.row2 button { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
+  border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.pick { display: inline-block; font: inherit; border: 1px solid var(--accent); background: var(--accent);
+  color: var(--accent-ink); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+.pick input { display: none; }
+.grid2 { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 4px 8px; align-items: center; }
+.seg { display: flex; gap: 0; margin-bottom: 8px; }
+.seg button { flex: 1; font: inherit; border: 1px solid var(--line); background: var(--chip); color: var(--ink);
+  padding: 5px 8px; cursor: pointer; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+.seg button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+#map { height: 260px; border-radius: 6px; border: 1px solid var(--line); }
+.muted { color: var(--muted); font-size: 12px; }
+.err { color: var(--err); }
+#plotwrap { display: flex; flex-direction: column; min-width: 0; padding: 12px 16px; }
+#head { display: flex; align-items: baseline; gap: 12px; }
+#title { font-weight: 600; flex: 1; }
+#export { font: inherit; font-size: 0.9em; border: 1px solid var(--line); background: var(--chip); color: var(--ink);
+          border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+#export:disabled { opacity: 0.5; cursor: default; }
+#where { margin-bottom: 4px; }
+#plot { flex: 1; min-height: 300px; }
+@media (max-width: 800px) {
+  main { grid-template-columns: 1fr; height: auto; }
+  aside { border-right: 0; }
+  #plot { height: 70vh; }
+}
 </style>
 </head>
 <body>
-<h1>British Isles reader prototype</h1>
-<p class="muted">Reads the British Isles NetCDF files directly from a folder on this computer, in the
-browser (h5wasm). Nothing is uploaded. Measures how long one variable at one lead time takes.</p>
-
-<div class="row">
-  <label>Data folder <input type="file" id="folder" webkitdirectory multiple></label>
-  <span id="status" class="muted">choose the british_isles_share folder (or a wave folder)</span>
+<header><h1>British Isles explorer <span class="muted">time series over all initial times, all members; the files are read on this computer, nothing is uploaded</span></h1></header>
+<main>
+<aside>
+  <section>
+    <h2>Data folder</h2>
+    <label class="pick"><input type="file" id="folder" webkitdirectory multiple>Choose folder…</label>
+    <p class="muted" id="datamsg">Choose the folder with the &lt;model&gt;_wave&lt;NN&gt;_british_isles.nc
+      files (a wave folder, or the folder above it for all waves). The browser may call this an
+      upload: the files are only read here, in this page.</p>
+  </section>
+  <section>
+    <h2>Location</h2>
+    <div class="seg"><button id="m-point" class="on">Grid point</button><button id="m-region">Region</button></div>
+    <div id="map"></div>
+    <p class="muted" id="maphelp">Click the map to choose a grid point.</p>
+    <div id="point-in" class="grid2">
+      <span>lat</span><input type="number" id="lat" step="0.25" value="50.75">
+      <span>lon</span><input type="number" id="lon" step="0.25" value="-3.5">
+    </div>
+    <div id="region-in" class="grid2" hidden>
+      <span>lat</span><input type="number" id="lat0" step="0.25" value="50">
+      <span>to</span><input type="number" id="lat1" step="0.25" value="51.5">
+      <span>lon</span><input type="number" id="lon0" step="0.25" value="-5.5">
+      <span>to</span><input type="number" id="lon1" step="0.25" value="-2.5">
+    </div>
+    <label class="row" id="agg-row" hidden>Aggregation <select id="agg"></select></label>
+  </section>
+  <section>
+    <h2>Variable</h2>
+    <select id="variable"></select>
+  </section>
+  <section>
+    <h2>Lead time</h2>
+    <select id="lead"></select>
+  </section>
+  <section>
+    <h2>Initial time of day</h2>
+    <div class="seg" id="hours">
+      <button data-h="00" class="on">00 UTC</button><button data-h="06" class="on">06 UTC</button><button data-h="12" class="on">12 UTC</button><button data-h="18" class="on">18 UTC</button>
+    </div>
+    <p class="muted">Click to show or hide the initial times of that hour.</p>
+  </section>
+  <section>
+    <h2>Ensemble display</h2>
+    <div class="seg"><button id="d-members">Members</button><button id="d-summary" class="on">Summary</button></div>
+    <label class="row"><input type="checkbox" id="dodge" checked> models side by side</label>
+    <p class="muted">Summary per initial time, members ordered by value: box = central 4 members
+      (5th–8th of 12), thin line = central 8 (3rd–10th), thinnest line = all members. Side by side:
+      the models are spread over half the distance to the neighbouring initial time (at most
+      ±12 h), inside the grey band of its initial time; the exact initial time is
+      shown on hover.</p>
+  </section>
+  <section>
+    <p class="muted">Each dot is one member's value at one initial time; the line connects the
+      ensemble means of that model. IFS ENS forecasts from 06 and 18 UTC end at +144 h. Precipitation: AIFS-ENS,
+      Atlas CRPS and IFS ENS only.</p>
+    <p class="muted" id="files"></p>
+  </section>
+</aside>
+<div id="plotwrap">
+  <div id="head"><div id="title"></div>
+    <button id="export" disabled title="Download the plotted data (selected hours of the day) as CSV">Export CSV</button></div>
+  <div id="where" class="muted"></div>
+  <div id="msg" class="muted"></div>
+  <div id="plot"></div>
 </div>
-<div class="row">
-  <label>Variable <select id="variable"></select></label>
-  <label>Lead time (h) <select id="lead"></select></label>
-  <label>lat <input type="number" id="lat0" step="0.25" value="50"></label>
-  <label>to <input type="number" id="lat1" step="0.25" value="50"></label>
-  <label>lon <input type="number" id="lon0" step="0.25" value="-3.5"></label>
-  <label>to <input type="number" id="lon1" step="0.25" value="-3.5"></label>
-  <button id="go" disabled>Read</button>
-</div>
-<div id="info" class="muted"></div>
-<table id="timing"></table>
-<div id="plot"></div>
+</main>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
 <script>
+const COLORS = {"aifs-ens": "#0072B2", "fcn3": "#D55E00", "atlas-crps": "#E69F00",
+                "aurora-ens": "#009E73", "ifs-ens": "#CC79A7"};   // as in the design document
 const $ = id => document.getElementById(id);
-const worker = new Worker("worker.js");
-let nextId = 0, grid = null;
-const pending = {};
-worker.onmessage = e => { const p = pending[e.data.id]; delete pending[e.data.id];
-  e.data.error ? p.reject(e.data.error) : p.resolve(e.data.result); };
-const call = (cmd, arg) => new Promise((resolve, reject) => {
-  const id = nextId++; pending[id] = {resolve, reject}; worker.postMessage({id, cmd, arg}); });
-const fail = err => { $("status").innerHTML = `<span class="err">${err}</span>`; };
+let display = "summary", last = null;
+let mode = "point", cat = null, marker = null, rect = null, corner = null, busy = false, queued = null;
 
-$("folder").onchange = async () => {
-  const list = [...$("folder").files].filter(f => /_wave\d+_british_isles\.nc$/.test(f.name));
-  if (!list.length) return fail("no <model>_wave<NN>_british_isles.nc files in that folder");
-  $("status").textContent = "opening…";
-  try { grid = await call("mount", list); } catch (e) { return fail(e); }
-  $("status").textContent = `${grid.files.length} file(s), ` +
-    (grid.files.reduce((s, f) => s + f.size, 0) / 1e9).toFixed(2) + " GB";
-  $("info").textContent = `chunk shape ${grid.chunks.join(" x ")} of ${grid.shape.join(" x ")}; ` +
-    `open times: ` + grid.files.map(f => `${f.model} ${f.open_ms.toFixed(0)} ms`).join(", ");
-  $("variable").innerHTML = grid.vars.map(v => `<option>${v}</option>`).join("");
-  $("variable").value = grid.vars.includes("t2m") ? "t2m" : grid.vars[0];
-  $("lead").innerHTML = grid.lead.map(h => `<option>${h}</option>`).join("");
-  $("lead").value = "120";
-  $("go").disabled = false;
+// all file reading happens in a worker (worker.js)
+const worker = new Worker("worker.js");
+let nextId = 0;
+const pending = {};
+worker.onmessage = e => {
+  const p = pending[e.data.id]; delete pending[e.data.id];
+  "error" in e.data ? p.reject(e.data.error) : p.resolve(e.data.result);
+};
+const call = (cmd, arg) => new Promise((resolve, reject) => {
+  const id = nextId++; pending[id] = {resolve, reject}; worker.postMessage({id, cmd, arg});
+});
+
+const map = L.map("map", {zoomSnap: 0.25});
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 10}).addTo(map);
+
+function setMode(m) {
+  mode = m;
+  $("m-point").classList.toggle("on", m === "point");
+  $("m-region").classList.toggle("on", m === "region");
+  $("point-in").hidden = m !== "point";
+  $("region-in").hidden = m !== "region";
+  $("agg-row").hidden = m !== "region";
+  $("maphelp").textContent = m === "point" ? "Click the map to choose a grid point."
+                                           : "Click two opposite corners on the map, or type the bounds.";
+  corner = null;
+  drawSelection();
+  update();
+}
+$("m-point").onclick = () => setMode("point");
+$("m-region").onclick = () => setMode("region");
+
+const snap = x => Math.round(x * 4) / 4;   // 0.25 degree grid
+map.on("click", e => {
+  const la = snap(e.latlng.lat), lo = snap(e.latlng.lng);
+  if (mode === "point") {
+    $("lat").value = la; $("lon").value = lo;
+  } else if (!corner) {
+    corner = [la, lo];
+    $("lat0").value = la; $("lat1").value = la; $("lon0").value = lo; $("lon1").value = lo;
+    drawSelection();
+    $("maphelp").textContent = "Now click the opposite corner.";
+    return;
+  } else {
+    $("lat0").value = Math.min(corner[0], la); $("lat1").value = Math.max(corner[0], la);
+    $("lon0").value = Math.min(corner[1], lo); $("lon1").value = Math.max(corner[1], lo);
+    corner = null;
+    $("maphelp").textContent = "Click two opposite corners on the map, or type the bounds.";
+  }
+  drawSelection();
+  update();
+});
+
+function drawSelection() {
+  if (marker) { map.removeLayer(marker); marker = null; }
+  if (rect) { map.removeLayer(rect); rect = null; }
+  const color = getComputedStyle(document.documentElement).getPropertyValue("--accent");
+  if (mode === "point") {
+    marker = L.circleMarker([+$("lat").value, +$("lon").value], {radius: 6, color, weight: 2}).addTo(map);
+  } else {
+    // grid cells are 0.25 degrees wide: draw the area the selected grid points represent
+    rect = L.rectangle([[+$("lat0").value - 0.125, +$("lon0").value - 0.125],
+                        [+$("lat1").value + 0.125, +$("lon1").value + 0.125]], {color, weight: 2}).addTo(map);
+  }
+}
+for (const id of ["lat", "lon", "lat0", "lat1", "lon0", "lon1"])
+  $(id).addEventListener("change", () => { drawSelection(); update(); });
+for (const id of ["variable", "lead", "agg"]) $(id).addEventListener("change", update);
+for (const d of ["members", "summary"]) $("d-" + d).onclick = () => {
+  display = d;
+  for (const e of ["members", "summary"]) $("d-" + e).classList.toggle("on", e === d);
+  if (last) plot(last);
+};
+$("dodge").addEventListener("change", () => { if (last) plot(last); });
+for (const b of document.querySelectorAll("#hours button")) b.onclick = () => {
+  const on = document.querySelectorAll("#hours button.on");
+  if (b.classList.contains("on") && on.length === 1) return;      // keep at least one hour
+  b.classList.toggle("on");
+  if (last) plot(last);
 };
 
-// grid indices of the box (lat runs north to south in the files)
-function box() {
-  const la = [+$("lat0").value, +$("lat1").value].sort((a, b) => a - b);
-  const lo = [+$("lon0").value, +$("lon1").value].sort((a, b) => a - b);
-  const iy = grid.lat.map((v, i) => v >= la[0] - 1e-6 && v <= la[1] + 1e-6 ? i : -1).filter(i => i >= 0);
-  const ix = grid.lon.map((v, i) => v >= lo[0] - 1e-6 && v <= lo[1] + 1e-6 ? i : -1).filter(i => i >= 0);
-  return {iy0: iy[0], iy1: iy.at(-1) + 1, ix0: ix[0], ix1: ix.at(-1) + 1, n: iy.length * ix.length};
+// sorted finite values -> [lo, hi] of the central k members (all members if fewer than k)
+function central(sorted, k) {
+  const n = sorted.length;
+  if (n <= k) return [sorted[0], sorted[n - 1]];
+  const lo = Math.floor((n - k) / 2);
+  return [sorted[lo], sorted[lo + k - 1]];
+}
+// "YYYY-MM-DDTHH:MM" shifted by h hours, in the format Plotly reads as a date
+function shift(t, h) {
+  return new Date(Date.parse(t + ":00Z") + h * 3600e3).toISOString().slice(0, 16).replace("T", " ");
 }
 
-$("go").onclick = async () => {
-  const b = box();
-  if (!b.n) return fail("the box contains no grid points");
-  $("go").disabled = true; $("status").textContent = "reading…";
-  const t0 = performance.now();
-  let res;
-  try { res = await call("read", {variable: $("variable").value, lead: +$("lead").value, ...b}); }
-  catch (e) { $("go").disabled = false; return fail(e); }
-  const wall = performance.now() - t0;
-  $("go").disabled = false;
-  $("status").textContent = `${b.n} grid point(s), total ${(wall / 1000).toFixed(2)} s`;
-  $("timing").innerHTML = "<tr><th>file</th><th>HDF5 read (s)</th><th>total (s)</th><th>chunks</th></tr>" +
-    res.map(r => r.missing ? `<tr><td>${r.model}</td><td colspan=3>variable or lead time not in file</td></tr>`
-      : `<tr><td>${r.model}</td><td>${(r.read_ms / 1000).toFixed(2)}</td><td>${(r.total_ms / 1000).toFixed(2)}</td><td>${r.chunks_touched}</td></tr>`).join("");
-  window.lastResult = res;   // for testing
-  const traces = res.filter(r => !r.missing).map(r => ({
-    type: "scatter", mode: "markers", name: r.model, marker: {size: 3},
-    x: r.inits.flatMap(t => r.vals[0].map(() => t)), y: r.vals.flat()}));
-  const ink = getComputedStyle(document.body).color;
-  Plotly.react("plot", traces, {margin: {l: 50, r: 10, t: 10, b: 40}, font: {color: ink},
-    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
-    yaxis: {title: `${$("variable").value} (${res.find(r => !r.missing)?.unit ?? ""})`}});
+async function update() {
+  if (!cat) return;
+  const q = new URLSearchParams({mode, variable: $("variable").value, lead: $("lead").value});
+  if (mode === "point") { q.set("lat", $("lat").value); q.set("lon", $("lon").value); }
+  else { for (const k of ["lat0", "lat1", "lon0", "lon1"]) q.set(k, $(k).value); q.set("agg", $("agg").value); }
+  // the worker answers one request at a time: while one runs, keep only the newest next one
+  queued = Object.fromEntries(q);
+  if (busy) return;
+  busy = true;
+  while (queued) {
+    const arg = queued; queued = null;
+    $("msg").textContent = "reading…";
+    try { plot(await call("series", arg)); }
+    catch (e) { $("msg").innerHTML = `<span class="err">${e}</span>`; }
+  }
+  busy = false;
+}
+
+// keep only the initial times of the selected hours of the day
+function selected(r0) {
+  const hours = new Set([...document.querySelectorAll("#hours button.on")].map(b => b.dataset.h));
+  return {...r0, models: r0.models.map(m => {
+    const keep = m.inits.map((t, i) => hours.has(t.slice(11, 13)) ? i : -1).filter(i => i >= 0);
+    return {...m, inits: keep.map(i => m.inits[i]), mean: keep.map(i => m.mean[i]),
+            members: m.members.map(c => keep.map(i => c[i]))};
+  })};
+}
+
+// the plotted data as CSV: one row per model and initial time, one column per member.
+// Plain ASCII only: variable id, units without symbols (degC), location as numbers.
+function exportCsv() {
+  if (!last) return;
+  const r = selected(last), nmem = Math.max(0, ...r.models.map(m => m.members.length));
+  const unit = r.unit.replace("°C", "degC").replace("/", "_per_");
+  const val = v => v === null || v === undefined ? "" : String(v);
+  const [la0, la1, lo0, lo1] = r.box, point = r.agg === "point";
+  const locHead = point ? ["lat", "lon"] : ["lat_min", "lat_max", "lon_min", "lon_max", "aggregation"];
+  const locVals = point ? [la0, lo0] : [la0, la1, lo0, lo1, r.agg];
+  const rows = [["model", "init_time", "valid_time", "lead_time_h", "variable", "unit", ...locHead,
+                 ...Array.from({length: nmem}, (_, k) => `member_${String(k + 1).padStart(2, "0")}`),
+                 "ensemble_mean"]];
+  for (const m of r.models)
+    m.inits.forEach((t, i) => rows.push([m.id, t.replace("T", " "), shift(t, r.lead), r.lead, r.id, unit,
+      ...locVals, ...Array.from({length: nmem}, (_, k) => val(m.members[k]?.[i])), val(m.mean[i])]));
+  const csv = rows.map(row => row.join(",")).join("\n") + "\n";
+  // coordinates in file names without points or minus signs: 50.75 -> 50p75N, -3.5 -> 3p50W
+  const c = (v, pos, neg) => Math.abs(v).toFixed(2).replace(".", "p") + (v < 0 ? neg : pos);
+  const lat = v => c(v, "N", "S"), lon = v => c(v, "E", "W");
+  const loc = point ? `${lat(la0)}_${lon(lo0)}` : `${lat(la0)}-${lat(la1)}_${lon(lo0)}-${lon(lo1)}_${r.agg}`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"}));
+  a.download = `british_isles_${r.id}_${r.lead}h_${loc}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$("export").onclick = exportCsv;
+
+function plot(r0) {
+  last = r0;
+  $("export").disabled = false;
+  const r = selected(r0);
+  const lead = r.lead % 24 ? `+${r.lead} h` : `+${r.lead} h (day ${r.lead / 24})`;
+  $("title").textContent = `${r.variable} (${r.unit}), ${lead}`;
+  $("where").textContent = r.where;
+  $("msg").textContent = r.missing.length ? `not available for: ${r.missing.join(", ")}` : "";
+  const traces = [], nm = r.models.length, fmt = v => v.toPrecision(4);
+  // initial times of all models, in order; gap = hours to the nearest neighbour (at most 48)
+  const hrs = t => Date.parse(t + ":00Z") / 3600e3;
+  const all = [...new Set(r.models.flatMap(m => m.inits))].sort();
+  const gap = {};
+  all.forEach((t, i) => {
+    const d = [i > 0 ? hrs(t) - hrs(all[i - 1]) : Infinity, i < all.length - 1 ? hrs(all[i + 1]) - hrs(t) : Infinity];
+    gap[t] = Math.min(48, ...d);
+  });
+  // one background cell per initial time, from halfway to the previous one to halfway to the
+  // next one (at the ends: the same width on both sides), alternately light and darker grey
+  const shapes = all.map((t, i) => {
+    const before = i > 0 ? (hrs(t) - hrs(all[i - 1])) / 2 : null;
+    const after = i < all.length - 1 ? (hrs(all[i + 1]) - hrs(t)) / 2 : null;
+    return {type: "rect", xref: "x", yref: "paper", y0: 0, y1: 1, layer: "below", line: {width: 0},
+            x0: shift(t, -(before ?? after ?? 24)), x1: shift(t, after ?? before ?? 24),
+            fillcolor: i % 2 ? "rgba(128,128,128,0.22)" : "rgba(128,128,128,0.07)"};
+  });
+  r.models.forEach((m, j) => {
+    const col = COLORS[m.id];
+    // side by side: models spread over a quarter of the gap to the nearest initial time on
+    // each side, so they stay well inside the grey band of their initial time (half the gap)
+    const xs = m.inits.map(t => shift(t, $("dodge").checked && nm > 1
+                                          ? (j - (nm - 1) / 2) * (gap[t] / 2) / (nm - 1) : 0));
+    const legend = {legendgroup: m.id, name: m.name};
+    let shown = false;
+    const first = () => { const f = !shown; shown = true; return f; };
+    if (display === "summary") {
+      // vertical segments joined by null breaks: all members, central 8, central 4
+      for (const [k, width, opacity] of [[Infinity, 0.8, 0.9], [8, 3, 0.9], [4, 8, 0.75]]) {
+        const x = [], y = [], text = [];
+        m.inits.forEach((t, i) => {
+          const v = m.members.map(c => c[i]).filter(a => a !== null).sort((a, b) => a - b);
+          if (!v.length) return;
+          const [lo, hi] = k === Infinity ? [v[0], v[v.length - 1]] : central(v, k);
+          const label = k === Infinity ? `all ${v.length} members` : `central ${Math.min(k, v.length)} members`;
+          const tx = `${m.name}, ${t.replace("T", " ")}<br>${label}: ${fmt(lo)} to ${fmt(hi)} ${r.unit}`;
+          x.push(xs[i], xs[i], null); y.push(lo, hi, null); text.push(tx, tx, null);
+        });
+        traces.push({x, y, text, type: "scatter", mode: "lines", ...legend, showlegend: first(),
+                     line: {color: col, width}, opacity, hovertemplate: "%{text}<extra></extra>"});
+      }
+    }
+    if (display === "members") {
+      const x = [], y = [], text = [];
+      m.members.forEach((vals, k) => vals.forEach((v, i) => {
+        if (v !== null) {
+          x.push(xs[i]); y.push(v);
+          text.push(`${m.name}, member ${k + 1}<br>${m.inits[i].replace("T", " ")}<br>${fmt(v)} ${r.unit}`);
+        }
+      }));
+      traces.push({x, y, text, type: "scatter", mode: "markers", ...legend, showlegend: first(),
+                   marker: {color: col, size: 4, opacity: 0.45},
+                   hovertemplate: "%{text}<extra></extra>"});
+    }
+    traces.push({x: xs, y: m.mean, type: "scatter", mode: "lines", ...legend, name: m.name + " mean",
+                 showlegend: false, connectgaps: false, line: {color: col, width: 1.5},
+                 text: m.inits.map((t, i) => m.mean[i] === null ? "" :
+                       `${m.name}, ensemble mean<br>${t.replace("T", " ")}<br>${fmt(m.mean[i])} ${r.unit}`),
+                 hovertemplate: "%{text}<extra></extra>"});
+  });
+  const css = getComputedStyle(document.documentElement);
+  const ink = css.getPropertyValue("--ink").trim(), line = css.getPropertyValue("--line").trim();
+  Plotly.react("plot", traces, {
+    margin: {l: 60, r: 10, t: 10, b: 40}, paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: {color: ink}, hovermode: "closest",
+    uirevision: "keep", shapes,
+    xaxis: {title: "initial time", gridcolor: line, zeroline: false, uirevision: "keep"},
+    yaxis: {title: `${r.variable} (${r.unit})`, gridcolor: line, zeroline: false,
+            uirevision: r.variable + "|" + r.agg},
+    legend: {orientation: "h", y: 1.02, yanchor: "bottom", x: 0},
+  }, {responsive: true, displaylogo: false});
+}
+
+let gridBox = null;
+
+// fill the menus from a catalogue, keeping the current choices where they still exist
+function useCatalog(c) {
+  cat = c;
+  const keep = {variable: $("variable").value, agg: $("agg").value, lead: $("lead").value || "120"};
+  for (const id of ["variable", "agg", "lead"]) $(id).innerHTML = "";
+  for (const v of cat.variables) $("variable").add(new Option(`${v.label} (${v.unit})`, v.id));
+  for (const a of cat.aggregations) $("agg").add(new Option(a.label, a.id));
+  for (const h of cat.lead_times) $("lead").add(new Option(h % 24 ? `+${h} h` : `+${h} h (day ${h / 24})`, h));
+  for (const [id, v] of Object.entries(keep))
+    if ([...$(id).options].some(o => o.value === v)) $(id).value = v;
+  $("files").textContent = "Files: " + cat.models.map(m => m.files.join(", ")).join("; ");
+  if (gridBox) map.removeLayer(gridBox);
+  gridBox = L.rectangle([[cat.lat[0] - 0.125, cat.lon[0] - 0.125], [cat.lat[1] + 0.125, cat.lon[1] + 0.125]],
+                        {color: "#888", weight: 1, fill: false, dashArray: "4 4", interactive: false}).addTo(map);
+}
+
+$("folder").onchange = async () => {
+  const list = [...$("folder").files];
+  if (!list.length) return;
+  const folder = (list[0].webkitRelativePath || list[0].name).split("/")[0];
+  $("datamsg").textContent = "opening…";
+  let c;
+  try { c = await call("scan", {files: list, folder}); }
+  catch (e) {
+    $("datamsg").innerHTML = `<span class="err">${e}</span>` + (cat ? ` (still using ${cat.data})` : "");
+    return;
+  }
+  const n = c.models.reduce((s, m) => s + m.files.length, 0);
+  $("datamsg").textContent = `${c.data}: ${c.models.length} model(s), ${n} file(s)`;
+  const first = !cat;
+  useCatalog(c);
+  if (first) { map.fitBounds([[cat.lat[0], cat.lon[0]], [cat.lat[1], cat.lon[1]]]); drawSelection(); }
+  update();
 };
+
+map.fitBounds([[49, -11], [61, 2]]);      // the British Isles box, until a folder is chosen
+drawSelection();
+$("msg").textContent = "Choose the data folder (left) to start.";
 </script>
 </body>
 </html>
