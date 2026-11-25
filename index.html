@@ -39,7 +39,7 @@ input[type=text] { flex: 1; min-width: 0; background: var(--bg); color: var(--in
   border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 .pick { display: inline-block; font: inherit; border: 1px solid var(--accent); background: var(--accent);
   color: var(--accent-ink); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
-.pick input { display: none; }
+body.drop main { outline: 3px dashed var(--accent); outline-offset: -6px; }
 .grid2 { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 4px 8px; align-items: center; }
 .seg { display: flex; gap: 0; margin-bottom: 8px; }
 .seg button { flex: 1; font: inherit; border: 1px solid var(--line); background: var(--chip); color: var(--ink);
@@ -71,10 +71,11 @@ input[type=text] { flex: 1; min-width: 0; background: var(--bg); color: var(--in
 <aside>
   <section>
     <h2>Data folder</h2>
-    <label class="pick"><input type="file" id="folder" webkitdirectory multiple>Choose folder…</label>
+    <button class="pick" id="choose">Choose folder…</button>
+    <input type="file" id="folder" webkitdirectory multiple hidden>
     <p class="muted" id="datamsg">Choose the folder with the &lt;model&gt;_wave&lt;NN&gt;_british_isles.nc
-      files (a wave folder, or the folder above it for all waves). The browser may call this an
-      upload: the files are only read here, in this page.</p>
+      files (a wave folder, or the folder above it for all waves), or drag it onto this page. The
+      files are only read here, in this page; nothing is uploaded.</p>
   </section>
   <section>
     <h2>Location</h2>
@@ -394,10 +395,68 @@ function useCatalog(c) {
                         {color: "#888", weight: 1, fill: false, dashArray: "4 4", interactive: false}).addTo(map);
 }
 
-$("folder").onchange = async () => {
+// Three ways to give the page a folder, all reading the files locally:
+//  - Chrome, Edge: the File System Access folder picker ("Select folder", then "view files")
+//  - other browsers: a folder input (Chrome would call that an "upload", hence not used there)
+//  - any browser: dragging the folder onto the page
+// Only the share files are collected, from the folder and up to two levels below it.
+const SHARE = /_wave\d+_british_isles\.nc$/;
+
+async function filesFromHandle(dir, depth = 0, out = []) {
+  for await (const entry of dir.values()) {
+    if (entry.kind === "file" && SHARE.test(entry.name)) out.push(await entry.getFile());
+    else if (entry.kind === "directory" && depth < 2) await filesFromHandle(entry, depth + 1, out);
+  }
+  return out;
+}
+
+async function filesFromEntry(dir, depth = 0, out = []) {
+  const reader = dir.createReader();
+  for (;;) {                                  // readEntries returns the entries in batches
+    const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+    if (!batch.length) break;
+    for (const entry of batch) {
+      if (entry.isFile && SHARE.test(entry.name)) out.push(await new Promise((res, rej) => entry.file(res, rej)));
+      else if (entry.isDirectory && depth < 2) await filesFromEntry(entry, depth + 1, out);
+    }
+  }
+  return out;
+}
+
+$("choose").onclick = async () => {
+  if (!window.showDirectoryPicker) return $("folder").click();
+  let dir;
+  try { dir = await window.showDirectoryPicker({id: "british-isles", mode: "read"}); }
+  catch (e) { return; }                       // cancelled
+  $("datamsg").textContent = "looking for files…";
+  openFiles(await filesFromHandle(dir), dir.name);
+};
+$("folder").onchange = () => {
   const list = [...$("folder").files];
-  if (!list.length) return;
-  const folder = (list[0].webkitRelativePath || list[0].name).split("/")[0];
+  if (list.length) openFiles(list.filter(f => SHARE.test(f.name)), list[0].webkitRelativePath.split("/")[0]);
+};
+document.addEventListener("dragover", e => { e.preventDefault(); document.body.classList.add("drop"); });
+document.addEventListener("dragleave", e => { if (!e.relatedTarget) document.body.classList.remove("drop"); });
+document.addEventListener("drop", async e => {
+  e.preventDefault();
+  document.body.classList.remove("drop");
+  const entries = [...e.dataTransfer.items].map(i => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.length) return;
+  $("datamsg").textContent = "looking for files…";
+  const files = [];
+  for (const en of entries) {
+    if (en.isDirectory) await filesFromEntry(en, 0, files);
+    else if (SHARE.test(en.name)) files.push(await new Promise((res, rej) => en.file(res, rej)));
+  }
+  openFiles(files, entries.length === 1 ? entries[0].name : `${entries.length} items`);
+});
+
+async function openFiles(list, folder) {
+  if (!list.length) {
+    $("datamsg").innerHTML = `<span class="err">no &lt;model&gt;_wave&lt;NN&gt;_british_isles.nc files in ${folder}</span>`
+                             + (cat ? ` (still using ${cat.data})` : "");
+    return;
+  }
   $("datamsg").textContent = "opening…";
   let c;
   try { c = await call("scan", {files: list, folder}); }
@@ -411,7 +470,7 @@ $("folder").onchange = async () => {
   useCatalog(c);
   if (first) { map.fitBounds([[cat.lat[0], cat.lon[0]], [cat.lat[1], cat.lon[1]]]); drawSelection(); }
   update();
-};
+}
 
 map.fitBounds([[49, -11], [61, 2]]);      // the British Isles box, until a folder is chosen
 drawSelection();
