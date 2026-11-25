@@ -84,8 +84,9 @@ function stored(model, variable, lead) {
   const key = `${generation}|${model}|${variable}|${lead}`;
   if (CACHE.has(key)) { const v = CACHE.get(key); CACHE.delete(key); CACHE.set(key, v); return v; }
   const parts = [], inits = [];
-  for (const {h5} of FILES[model]) {
+  for (const {h5, name} of FILES[model]) {
     if (!h5.keys().includes(variable)) return null;
+    postMessage({progress: `reading ${variable} from ${name}…`});
     const li = num(h5.get("lead_time").value).indexOf(lead);
     if (li < 0) return null;
     const ds = h5.get(variable), [ni, nm, , ny, nx] = ds.shape;

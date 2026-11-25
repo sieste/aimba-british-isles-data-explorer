@@ -149,6 +149,7 @@ const worker = new Worker("worker.js");
 let nextId = 0;
 const pending = {};
 worker.onmessage = e => {
+  if ("progress" in e.data) { $("msg").textContent = e.data.progress; return; }
   const p = pending[e.data.id]; delete pending[e.data.id];
   "error" in e.data ? p.reject(e.data.error) : p.resolve(e.data.result);
 };
@@ -250,7 +251,8 @@ async function update() {
   while (queued) {
     const arg = queued; queued = null;
     $("msg").textContent = "reading…";
-    try { plot(await call("series", arg)); }
+    const t = performance.now();
+    try { plot(await call("series", arg)); $("msg").textContent += ` (${secs(t)})`; }
     catch (e) { $("msg").innerHTML = `<span class="err">${e}</span>`; }
   }
   busy = false;
@@ -428,12 +430,14 @@ $("choose").onclick = async () => {
   let dir;
   try { dir = await window.showDirectoryPicker({id: "british-isles", mode: "read"}); }
   catch (e) { return; }                       // cancelled
-  $("datamsg").textContent = "looking for files…";
-  openFiles(await filesFromHandle(dir), dir.name);
+  $("datamsg").textContent = `looking for files in ${dir.name}…`;
+  const t0 = performance.now();
+  const files = await filesFromHandle(dir);
+  openFiles(files, dir.name, t0);
 };
 $("folder").onchange = () => {
   const list = [...$("folder").files];
-  if (list.length) openFiles(list.filter(f => SHARE.test(f.name)), list[0].webkitRelativePath.split("/")[0]);
+  if (list.length) openFiles(list.filter(f => SHARE.test(f.name)), list[0].webkitRelativePath.split("/")[0], performance.now());
 };
 document.addEventListener("dragover", e => { e.preventDefault(); document.body.classList.add("drop"); });
 document.addEventListener("dragleave", e => { if (!e.relatedTarget) document.body.classList.remove("drop"); });
@@ -443,21 +447,25 @@ document.addEventListener("drop", async e => {
   const entries = [...e.dataTransfer.items].map(i => i.webkitGetAsEntry?.()).filter(Boolean);
   if (!entries.length) return;
   $("datamsg").textContent = "looking for files…";
+  const t0 = performance.now();
   const files = [];
   for (const en of entries) {
     if (en.isDirectory) await filesFromEntry(en, 0, files);
     else if (SHARE.test(en.name)) files.push(await new Promise((res, rej) => en.file(res, rej)));
   }
-  openFiles(files, entries.length === 1 ? entries[0].name : `${entries.length} items`);
+  openFiles(files, entries.length === 1 ? entries[0].name : `${entries.length} items`, t0);
 });
 
-async function openFiles(list, folder) {
+const secs = t => ((performance.now() - t) / 1000).toFixed(1) + " s";
+
+async function openFiles(list, folder, t0) {
+  const t1 = performance.now();
   if (!list.length) {
     $("datamsg").innerHTML = `<span class="err">no &lt;model&gt;_wave&lt;NN&gt;_british_isles.nc files in ${folder}</span>`
                              + (cat ? ` (still using ${cat.data})` : "");
     return;
   }
-  $("datamsg").textContent = "opening…";
+  $("datamsg").textContent = `found ${list.length} file(s) in ${secs(t0)}; opening…`;
   let c;
   try { c = await call("scan", {files: list, folder}); }
   catch (e) {
@@ -465,7 +473,8 @@ async function openFiles(list, folder) {
     return;
   }
   const n = c.models.reduce((s, m) => s + m.files.length, 0);
-  $("datamsg").textContent = `${c.data}: ${c.models.length} model(s), ${n} file(s)`;
+  $("datamsg").textContent = `${c.data}: ${c.models.length} model(s), ${n} file(s) ` +
+    `(found in ${((t1 - t0) / 1000).toFixed(1)} s, opened in ${secs(t1)})`;
   const first = !cat;
   useCatalog(c);
   if (first) { map.fitBounds([[cat.lat[0], cat.lon[0]], [cat.lat[1], cat.lon[1]]]); drawSelection(); }
