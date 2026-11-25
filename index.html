@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>British Isles reader prototype</title>
+<style>
+:root { --bg: #fff; --ink: #1d2733; --muted: #5b6876; --line: #d9dee4; --accent: #1f6feb; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #14181d; --ink: #e3e8ee; --muted: #98a4b1; --line: #2c343d; --accent: #4c8dff; }
+}
+:root[data-theme="dark"] { --bg: #14181d; --ink: #e3e8ee; --muted: #98a4b1; --line: #2c343d; --accent: #4c8dff; }
+body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink);
+       font: 14px/1.45 system-ui, sans-serif; max-width: 1100px; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+.muted { color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 10px 0; }
+input[type=number] { width: 6em; }
+button, select, input { font: inherit; }
+button { border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+table { border-collapse: collapse; margin: 8px 0; }
+td, th { border-bottom: 1px solid var(--line); padding: 3px 10px; text-align: right; }
+td:first-child, th:first-child { text-align: left; }
+#plot { height: 420px; }
+.err { color: #d1242f; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>British Isles reader prototype</h1>
+<p class="muted">Reads the British Isles NetCDF files directly from a folder on this computer, in the
+browser (h5wasm). Nothing is uploaded. Measures how long one variable at one lead time takes.</p>
+
+<div class="row">
+  <label>Data folder <input type="file" id="folder" webkitdirectory multiple></label>
+  <span id="status" class="muted">choose the british_isles_share folder (or a wave folder)</span>
+</div>
+<div class="row">
+  <label>Variable <select id="variable"></select></label>
+  <label>Lead time (h) <select id="lead"></select></label>
+  <label>lat <input type="number" id="lat0" step="0.25" value="50"></label>
+  <label>to <input type="number" id="lat1" step="0.25" value="50"></label>
+  <label>lon <input type="number" id="lon0" step="0.25" value="-3.5"></label>
+  <label>to <input type="number" id="lon1" step="0.25" value="-3.5"></label>
+  <button id="go" disabled>Read</button>
+</div>
+<div id="info" class="muted"></div>
+<table id="timing"></table>
+<div id="plot"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const worker = new Worker("worker.js");
+let nextId = 0, grid = null;
+const pending = {};
+worker.onmessage = e => { const p = pending[e.data.id]; delete pending[e.data.id];
+  e.data.error ? p.reject(e.data.error) : p.resolve(e.data.result); };
+const call = (cmd, arg) => new Promise((resolve, reject) => {
+  const id = nextId++; pending[id] = {resolve, reject}; worker.postMessage({id, cmd, arg}); });
+const fail = err => { $("status").innerHTML = `<span class="err">${err}</span>`; };
+
+$("folder").onchange = async () => {
+  const list = [...$("folder").files].filter(f => /_wave\d+_british_isles\.nc$/.test(f.name));
+  if (!list.length) return fail("no <model>_wave<NN>_british_isles.nc files in that folder");
+  $("status").textContent = "opening…";
+  try { grid = await call("mount", list); } catch (e) { return fail(e); }
+  $("status").textContent = `${grid.files.length} file(s), ` +
+    (grid.files.reduce((s, f) => s + f.size, 0) / 1e9).toFixed(2) + " GB";
+  $("info").textContent = `chunk shape ${grid.chunks.join(" x ")} of ${grid.shape.join(" x ")}; ` +
+    `open times: ` + grid.files.map(f => `${f.model} ${f.open_ms.toFixed(0)} ms`).join(", ");
+  $("variable").innerHTML = grid.vars.map(v => `<option>${v}</option>`).join("");
+  $("variable").value = grid.vars.includes("t2m") ? "t2m" : grid.vars[0];
+  $("lead").innerHTML = grid.lead.map(h => `<option>${h}</option>`).join("");
+  $("lead").value = "120";
+  $("go").disabled = false;
+};
+
+// grid indices of the box (lat runs north to south in the files)
+function box() {
+  const la = [+$("lat0").value, +$("lat1").value].sort((a, b) => a - b);
+  const lo = [+$("lon0").value, +$("lon1").value].sort((a, b) => a - b);
+  const iy = grid.lat.map((v, i) => v >= la[0] - 1e-6 && v <= la[1] + 1e-6 ? i : -1).filter(i => i >= 0);
+  const ix = grid.lon.map((v, i) => v >= lo[0] - 1e-6 && v <= lo[1] + 1e-6 ? i : -1).filter(i => i >= 0);
+  return {iy0: iy[0], iy1: iy.at(-1) + 1, ix0: ix[0], ix1: ix.at(-1) + 1, n: iy.length * ix.length};
+}
+
+$("go").onclick = async () => {
+  const b = box();
+  if (!b.n) return fail("the box contains no grid points");
+  $("go").disabled = true; $("status").textContent = "reading…";
+  const t0 = performance.now();
+  let res;
+  try { res = await call("read", {variable: $("variable").value, lead: +$("lead").value, ...b}); }
+  catch (e) { $("go").disabled = false; return fail(e); }
+  const wall = performance.now() - t0;
+  $("go").disabled = false;
+  $("status").textContent = `${b.n} grid point(s), total ${(wall / 1000).toFixed(2)} s`;
+  $("timing").innerHTML = "<tr><th>file</th><th>HDF5 read (s)</th><th>total (s)</th><th>chunks</th></tr>" +
+    res.map(r => r.missing ? `<tr><td>${r.model}</td><td colspan=3>variable or lead time not in file</td></tr>`
+      : `<tr><td>${r.model}</td><td>${(r.read_ms / 1000).toFixed(2)}</td><td>${(r.total_ms / 1000).toFixed(2)}</td><td>${r.chunks_touched}</td></tr>`).join("");
+  window.lastResult = res;   // for testing
+  const traces = res.filter(r => !r.missing).map(r => ({
+    type: "scatter", mode: "markers", name: r.model, marker: {size: 3},
+    x: r.inits.flatMap(t => r.vals[0].map(() => t)), y: r.vals.flat()}));
+  const ink = getComputedStyle(document.body).color;
+  Plotly.react("plot", traces, {margin: {l: 50, r: 10, t: 10, b: 40}, font: {color: ink},
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    yaxis: {title: `${$("variable").value} (${res.find(r => !r.missing)?.unit ?? ""})`}});
+};
+</script>
+</body>
+</html>
