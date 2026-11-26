@@ -333,8 +333,8 @@ function plot(r0) {
     const col = COLORS[m.id] ?? ink0, j = ens.indexOf(m);
     if (isRef(m)) {
       traces.push({x: m.inits.map(t => shift(t, 0)), y: m.members[0], type: "scatter", mode: "lines+markers",
-                   name: m.name, legendgroup: m.id, connectgaps: false, line: {color: col, width: 1.5},
-                   marker: {color: col, size: 4},
+                   name: m.name, legendgroup: m.id, connectgaps: false, line: {color: col, width: 3},
+                   marker: {color: col, size: 6},
                    text: m.inits.map((t, i) => m.members[0][i] === null ? "" :
                          `${m.name}, at ${shift(t, r.lead)} (initial time ${t.replace("T", " ")} + ${r.lead} h)<br>${fmt(m.members[0][i])} ${r.unit}`),
                    hovertemplate: "%{text}<extra></extra>"});
