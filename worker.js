@@ -4,7 +4,7 @@
 self.importScripts("https://cdn.jsdelivr.net/npm/h5wasm@0.10.3/dist/iife/h5wasm.js");
 
 const MODELS = {"aifs-ens": "AIFS-ENS", "fcn3": "FourCastNet 3", "atlas-crps": "Atlas CRPS",
-                "aurora-ens": "Aurora 1.5 ens. (fp16)", "ifs-ens": "IFS ENS"};
+                "aurora-ens": "Aurora 1.5 ens. (fp16)", "ifs-ens": "IFS ENS", "era5": "ERA5"};
 // id: [label, unit, source variables, conversion of the stored values]
 const VARIABLES = {
   t2m: ["2-m temperature", "°C", ["t2m"], x => x - 273.15],
@@ -84,12 +84,14 @@ function stored(model, variable, lead) {
   const key = `${generation}|${model}|${variable}|${lead}`;
   if (CACHE.has(key)) { const v = CACHE.get(key); CACHE.delete(key); CACHE.set(key, v); return v; }
   const parts = [], inits = [];
+  let members = null;
   for (const {h5, name} of FILES[model]) {
     if (!h5.keys().includes(variable)) return null;
     postMessage({progress: `reading ${variable} from ${name}…`});
     const li = num(h5.get("lead_time").value).indexOf(lead);
     if (li < 0) return null;
     const ds = h5.get(variable), [ni, nm, , ny, nx] = ds.shape;
+    members = nm;
     const raw = ds.slice([[0, ni], [0, nm], [li, li + 1], [0, ny], [0, nx]]);
     const sf = attr(ds, "scale_factor") ?? 1, ao = attr(ds, "add_offset") ?? 0, fill = attr(ds, "_FillValue");
     const out = new Float64Array(raw.length);
@@ -107,7 +109,7 @@ function stored(model, variable, lead) {
     let o = 0;
     for (const p of parts) { data.set(p, o); o += p.length; }
   }
-  const v = {data, inits};
+  const v = {data, inits, members};
   CACHE.set(key, v);
   let bytes = 0;
   for (const x of CACHE.values()) bytes += x.data.byteLength;
@@ -149,7 +151,7 @@ function series(q) {
   for (const m of Object.keys(FILES)) {
     const parts = sources.map(s => stored(m, s, lead));
     if (parts.some(p => p === null)) { out.missing.push(MODELS[m]); continue; }
-    const inits = parts[0].inits, ni = inits.length, nm = GRID.members;
+    const inits = parts[0].inits, ni = inits.length, nm = parts[0].members;
     const members = Array.from({length: nm}, () => new Array(ni));
     const mean = new Array(ni);
     for (let i = 0; i < ni; i++) {

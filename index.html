@@ -53,8 +53,8 @@ body.drop main { outline: 3px dashed var(--accent); outline-offset: -6px; }
 #plotwrap { display: flex; flex-direction: column; min-width: 0; padding: 12px 16px; }
 #head { display: flex; align-items: baseline; gap: 12px; }
 #title { font-weight: 600; flex: 1; }
-#export { font: inherit; font-size: 0.9em; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
-          border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+#export { font: inherit; border: 1px solid var(--err); background: var(--err); color: var(--accent-ink);
+          border-radius: 6px; padding: 5px 12px; cursor: pointer; margin-top: 4px; }
 #export:disabled { opacity: 0.5; cursor: default; }
 #where { margin-bottom: 4px; }
 #plot { flex: 1; min-height: 300px; }
@@ -108,6 +108,7 @@ body.drop main { outline: 3px dashed var(--accent); outline-offset: -6px; }
       <button data-h="00" class="on">00 UTC</button><button data-h="06" class="on">06 UTC</button><button data-h="12" class="on">12 UTC</button><button data-h="18" class="on">18 UTC</button>
     </div>
     <p class="muted">Click to show or hide the initial times of that hour.</p>
+    <button id="export" disabled title="Download the plotted data (selected hours of the day) as CSV">Export CSV</button>
   </section>
   <section>
     <h2>Ensemble display</h2>
@@ -122,13 +123,13 @@ body.drop main { outline: 3px dashed var(--accent); outline-offset: -6px; }
   <section>
     <p class="muted">Each dot is one member's value at one initial time; the line connects the
       ensemble means of that model. IFS ENS forecasts from 06 and 18 UTC end at +144 h. Precipitation: AIFS-ENS,
-      Atlas CRPS and IFS ENS only.</p>
+      Atlas CRPS and IFS ENS only. ERA5 (line with dots in the text colour) is the reanalysis
+      at the valid time, initial time + lead time, plotted at the initial time like the forecasts.</p>
     <p class="muted" id="files"></p>
   </section>
 </aside>
 <div id="plotwrap">
-  <div id="head"><div id="title"></div>
-    <button id="export" disabled title="Download the plotted data (selected hours of the day) as CSV">Export CSV</button></div>
+  <div id="head"><div id="title"></div></div>
   <div id="where" class="muted"></div>
   <div id="msg" class="muted"></div>
   <div id="plot"></div>
@@ -139,7 +140,7 @@ body.drop main { outline: 3px dashed var(--accent); outline-offset: -6px; }
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
 <script>
 const COLORS = {"aifs-ens": "#0072B2", "fcn3": "#D55E00", "atlas-crps": "#E69F00",
-                "aurora-ens": "#009E73", "ifs-ens": "#CC79A7"};   // as in the design document
+                "aurora-ens": "#009E73", "ifs-ens": "#CC79A7"};   // era5: the text colour (reference)   // as in the design document
 const $ = id => document.getElementById(id);
 let display = "summary", last = null;
 let mode = "point", cat = null, marker = null, rect = null, corner = null, busy = false, queued = null;
@@ -305,7 +306,12 @@ function plot(r0) {
   $("title").textContent = `${r.variable} (${r.unit}), ${lead}`;
   $("where").textContent = r.where;
   $("msg").textContent = r.missing.length ? `not available for: ${r.missing.join(", ")}` : "";
-  const traces = [], nm = r.models.length, fmt = v => v.toPrecision(4);
+  const traces = [], fmt = v => v.toPrecision(4);
+  // single-member data sets (ERA5) are references: drawn as a line with dots at the exact
+  // initial time; only the ensembles are spread side by side
+  const ink0 = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim();
+  const isRef = m => m.members.length === 1;
+  const ens = r.models.filter(m => !isRef(m)), nm = ens.length;
   // initial times of all models, in order; gap = hours to the nearest neighbour (at most 48)
   const hrs = t => Date.parse(t + ":00Z") / 3600e3;
   const all = [...new Set(r.models.flatMap(m => m.inits))].sort();
@@ -323,8 +329,17 @@ function plot(r0) {
             x0: shift(t, -(before ?? after ?? 24)), x1: shift(t, after ?? before ?? 24),
             fillcolor: i % 2 ? "rgba(128,128,128,0.22)" : "rgba(128,128,128,0.07)"};
   });
-  r.models.forEach((m, j) => {
-    const col = COLORS[m.id];
+  r.models.forEach(m => {
+    const col = COLORS[m.id] ?? ink0, j = ens.indexOf(m);
+    if (isRef(m)) {
+      traces.push({x: m.inits.map(t => shift(t, 0)), y: m.members[0], type: "scatter", mode: "lines+markers",
+                   name: m.name, legendgroup: m.id, connectgaps: false, line: {color: col, width: 1.5},
+                   marker: {color: col, size: 4},
+                   text: m.inits.map((t, i) => m.members[0][i] === null ? "" :
+                         `${m.name}, at ${shift(t, r.lead)} (initial time ${t.replace("T", " ")} + ${r.lead} h)<br>${fmt(m.members[0][i])} ${r.unit}`),
+                   hovertemplate: "%{text}<extra></extra>"});
+      return;
+    }
     // side by side: models spread over a quarter of the gap to the nearest initial time on
     // each side, so they stay well inside the grey band of their initial time (half the gap)
     const xs = m.inits.map(t => shift(t, $("dodge").checked && nm > 1
